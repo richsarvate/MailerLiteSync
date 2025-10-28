@@ -1,0 +1,7 @@
+{
+  "mongodb_uri": "YOUR_MONGODB_URI_HERE",
+  "database_name": "YOUR_DATABASE_NAME",
+  "collections": ["Bucketlist", "Eventbrite", "Squarespace", "contacts"],
+  "log_file": "logs/mailerlite_sync.log",
+  "mailerlite_token": "YOUR_MAILERLITE_API_TOKEN_HERE"
+}
