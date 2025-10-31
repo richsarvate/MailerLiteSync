@@ -61,7 +61,9 @@ GROUPS = {
 
 def load_config():
     """Load configuration from config file"""
-    CONFIG_FILE = "config.json"
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    CONFIG_FILE = os.path.join(script_dir, "config.json")
     try:
         with open(CONFIG_FILE, 'r') as f:
             config_data = json.load(f)
@@ -73,7 +75,7 @@ def load_config():
             "MAILER_LITE_TOKEN": config_data["MAILER_LITE_TOKEN"]
         }
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
-        print(f"Error loading config: {str(e)}")  # Use print since logger might not be configured yet
+        print(f"Error loading config from {CONFIG_FILE}: {str(e)}")  # Use print since logger might not be configured yet
         return None
 
 def is_valid_email(email):
