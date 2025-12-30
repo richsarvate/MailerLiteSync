@@ -56,6 +56,7 @@ GROUPS = {
     "church": "143572232163034114",
     "palace": "143571926962407099",
     "blind barber fulton market": "148048384759956607",
+    "rabbitbox": "170455675935131130",
     "uncategorized": "143572290783675542"
 }
 
@@ -92,20 +93,20 @@ def parse_show_date(show_date_str):
     If year is missing, assumes current year.
     """
     try:
+        # Remove ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) only after digits first
+        import re
+        date_clean = re.sub(r'(\d)(st|nd|rd|th)\b', r'\1', show_date_str)
+        
         # Try common date formats with year
-        for fmt in ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y %I:%M %p"]:
+        for fmt in ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y %I:%M %p", "%A %B %d %I%p %Y"]:
             try:
-                parsed = datetime.strptime(show_date_str, fmt)
+                parsed = datetime.strptime(date_clean, fmt)
                 return parsed.date()
             except ValueError:
                 continue
         
         # Try formats without year (assume current year)
         current_year = datetime.now().year
-        
-        # Remove ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) only after digits
-        import re
-        date_clean = re.sub(r'(\d)(st|nd|rd|th)\b', r'\1', show_date_str)
         
         # Try different time formats
         time_formats = ["%I%p", "%I:%M%p"]
