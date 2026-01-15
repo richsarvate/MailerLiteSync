@@ -98,7 +98,7 @@ def parse_show_date(show_date_str):
         date_clean = re.sub(r'(\d)(st|nd|rd|th)\b', r'\1', show_date_str)
         
         # Try common date formats with year
-        for fmt in ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y %I:%M %p", "%A %B %d %I%p %Y"]:
+        for fmt in ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y %I:%M %p", "%A %B %d %I%p %Y", "%A %B %d %I:%M%p %Y"]:
             try:
                 parsed = datetime.strptime(date_clean, fmt)
                 return parsed.date()
