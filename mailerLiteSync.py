@@ -48,17 +48,8 @@ def setup_logging():
         ]
     )
 
-# Venue to MailerLite Group Mapping (from addEmailToMailerLite.py)
-GROUPS = {
-    "townhouse": "143572270449690387",
-    "stowaway": "143572260771333843",
-    "citizen": "143572251965392675",
-    "church": "143572232163034114",
-    "palace": "143571926962407099",
-    "blind barber fulton market": "148048384759956607",
-    "rabbitbox": "170455675935131130",
-    "uncategorized": "143572290783675542"
-}
+# Venue to MailerLite Group Mapping (single source of truth in addEmailToMailerLite.py)
+from addEmailToMailerLite import GROUPS
 
 def load_config():
     """Load configuration from config file"""
@@ -86,12 +77,27 @@ def is_valid_email(email):
     email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
     return re.match(email_regex, email) is not None
 
-def parse_show_date(show_date_str):
+def parse_show_date(contact):
     """
-    Parse show date string to date object.
-    Handles various date formats that might be in the database.
-    If year is missing, assumes current year.
+    Parse show date from contact object.
+    Prioritizes show_datetime field (accurate year), falls back to parsing show_date text.
     """
+    # Try show_datetime first (has accurate year from database)
+    if contact.get('show_datetime'):
+        show_datetime = contact.get('show_datetime')
+        try:
+            if isinstance(show_datetime, datetime):
+                return show_datetime.date()
+            elif isinstance(show_datetime, date):
+                return show_datetime
+            elif isinstance(show_datetime, str):
+                return datetime.strptime(show_datetime, "%Y-%m-%d %H:%M:%S").date()
+        except Exception as e:
+            logger.warning(f"Failed to parse show_datetime '{show_datetime}', falling back to show_date: {str(e)}")
+    
+    # Fall back to parsing show_date text field
+    show_date_str = contact.get('show_date', '')
+    
     try:
         # Remove ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) only after digits first
         import re
@@ -190,7 +196,7 @@ def get_contacts_to_process(limit=None):
                 if limit and len(all_valid_contacts) >= limit:
                     break
                     
-                show_date = parse_show_date(contact.get('show_date', ''))
+                show_date = parse_show_date(contact)
                 if show_date and show_date < today:
                     # Add collection source for tracking
                     contact['_collection_source'] = collection_name

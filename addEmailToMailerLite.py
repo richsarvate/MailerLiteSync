@@ -10,12 +10,27 @@ API_KEY = os.getenv('MAILERLITE_API_KEY')
 
 # Segment Mapping
 GROUPS = {
-    "townhouse": "143572270449690387",
-    "stowaway": "143572260771333843",
-    "citizen": "143572251965392675",
-    "church": "143572232163034114",
-    "palace": "143571926962407099",
+    # LA
+    "townhouse": "143626801579558524",
+    "stowaway": "143626801579558524",
+    "citizen": "143626801579558524",
+    "the virgil": "143626801579558524",
+
+    # SF
+    "church": "143625708407621344",
+    "palace": "143625708407621344",
+
+    # Chicago
     "blind barber fulton market": "148048384759956607",
+    "blind barber": "148048384759956607",
+
+    # NYC
+    "revision lounge": "143625553542383583",
+    "velvet room": "143625553542383583",
+
+    # Seattle
+    "rabbitbox": "170455675935131130",
+
     "uncategorized": "143572290783675542"
 }
 
