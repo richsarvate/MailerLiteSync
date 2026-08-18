@@ -17,24 +17,20 @@ import os
 import argparse
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 from datetime import datetime, date
 from pymongo import MongoClient
 import requests
 import re
 
-# Configure logging - will be set up after config is loaded
 logger = logging.getLogger(__name__)
 
-# MailerLite API Key - will be loaded from config
 API_KEY = None
 
 def setup_logging():
     """Setup logging configuration using config file"""
     config = load_config()
     if not config:
-        # Fallback to default log file if config fails
         log_file = "/home/ec2-user/MailerLiteSync/logs/mailerlite_sync.log"
     else:
         log_file = config["LOG_FILE"]
@@ -48,12 +44,10 @@ def setup_logging():
         ]
     )
 
-# Venue to MailerLite Group Mapping (single source of truth in addEmailToMailerLite.py)
 from addEmailToMailerLite import GROUPS
 
 def load_config():
     """Load configuration from config file"""
-    # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
     CONFIG_FILE = os.path.join(script_dir, "config.json")
     try:
@@ -67,7 +61,7 @@ def load_config():
             "MAILER_LITE_TOKEN": config_data["MAILER_LITE_TOKEN"]
         }
     except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
-        print(f"Error loading config from {CONFIG_FILE}: {str(e)}")  # Use print since logger might not be configured yet
+        print(f"Error loading config from {CONFIG_FILE}: {str(e)}")
         return None
 
 def is_valid_email(email):
@@ -82,7 +76,6 @@ def parse_show_date(contact):
     Parse show date from contact object.
     Prioritizes show_datetime field (accurate year), falls back to parsing show_date text.
     """
-    # Try show_datetime first (has accurate year from database)
     if contact.get('show_datetime'):
         show_datetime = contact.get('show_datetime')
         try:
@@ -95,15 +88,12 @@ def parse_show_date(contact):
         except Exception as e:
             logger.warning(f"Failed to parse show_datetime '{show_datetime}', falling back to show_date: {str(e)}")
     
-    # Fall back to parsing show_date text field
     show_date_str = contact.get('show_date', '')
     
     try:
-        # Remove ordinal suffixes (1st, 2nd, 3rd, 4th, etc.) only after digits first
         import re
         date_clean = re.sub(r'(\d)(st|nd|rd|th)\b', r'\1', show_date_str)
         
-        # Try common date formats with year
         for fmt in ["%Y-%m-%d %I:%M %p", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%m/%d/%Y", "%B %d, %Y %I:%M %p", "%A %B %d %I%p %Y", "%A %B %d %I:%M%p %Y"]:
             try:
                 parsed = datetime.strptime(date_clean, fmt)
@@ -111,10 +101,8 @@ def parse_show_date(contact):
             except ValueError:
                 continue
         
-        # Try formats without year (assume current year)
         current_year = datetime.now().year
         
-        # Try different time formats
         time_formats = ["%I%p", "%I:%M%p"]
         
         for time_fmt in time_formats:
@@ -125,7 +113,6 @@ def parse_show_date(contact):
             except ValueError:
                 continue
         
-        # If all formats fail, log and return None
         logger.warning(f"Could not parse date: {show_date_str}")
         return None
     except Exception as e:
@@ -155,9 +142,7 @@ def get_contacts_to_process(limit=None):
         client = MongoClient(MONGO_URI)
         db = client[MONGO_DB]
         
-        # Query each collection
         for collection_name in MONGO_COLLECTIONS:
-            # Stop if we've reached the limit
             if limit and len(all_valid_contacts) >= limit:
                 logger.info(f"Reached limit of {limit} contacts, skipping remaining collections")
                 break
@@ -165,7 +150,6 @@ def get_contacts_to_process(limit=None):
             logger.info(f"Processing collection: {collection_name}")
             collection = db[collection_name]
             
-            # Find contacts that haven't been added to MailerLite (false or missing field)
             query = {
                 "$or": [
                     {"added_to_mailerlite": False},
@@ -176,7 +160,6 @@ def get_contacts_to_process(limit=None):
             
             contacts = list(collection.find(query))
             
-            # Count breakdown for logging
             false_count = len(list(collection.find({
                 "added_to_mailerlite": False,
                 "email": {"$exists": True, "$ne": "", "$nin": [None, "none", "null"]}
@@ -188,17 +171,14 @@ def get_contacts_to_process(limit=None):
             
             logger.info(f"Found {len(contacts)} unprocessed contacts in {collection_name} ({false_count} with false, {missing_count} missing field)")
             
-            # Filter by show date (only completed shows)
             today = date.today()
             
             for contact in contacts:
-                # Stop if we've reached the limit
                 if limit and len(all_valid_contacts) >= limit:
                     break
                     
                 show_date = parse_show_date(contact)
                 if show_date and show_date < today:
-                    # Add collection source for tracking
                     contact['_collection_source'] = collection_name
                     all_valid_contacts.append(contact)
                 elif show_date is None:
@@ -225,7 +205,6 @@ def convert_to_mailerlite_format(contacts):
     invalid_emails = []
     
     for contact in contacts:
-        # Skip invalid emails
         if not is_valid_email(contact.get('email')):
             email = contact.get('email')
             logger.warning(f"Skipping invalid email: {email}")
@@ -234,8 +213,6 @@ def convert_to_mailerlite_format(contacts):
             
         venue = contact.get('venue', 'uncategorized')
         
-        # Create contact array in expected format
-        # [venue, date, email, source, time, type, firstname, lastname, tickets, phone(optional)]
         contact_array = [
             contact.get('venue', ''),
             contact.get('show_date', ''),
@@ -263,20 +240,17 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
     """
     logger.info("Starting MailerLite batch upload")
     
-    # API Endpoint for batch requests
     batch_url = "https://connect.mailerlite.com/api/batch"
     
-    # Request Headers
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Authorization": f"Bearer {api_key}"
     }
     
-    # Collect requests for batch processing
     requests_list = []
     processed_emails = []
-    group_stats = {}  # Track which groups contacts are added to
+    group_stats = {}
     
     for show, contacts in emailsToAdd.items():
         for contact in contacts:
@@ -285,16 +259,13 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
             group_id = GROUPS.get(venue, GROUPS["uncategorized"])
             group_name = venue if venue in GROUPS else "uncategorized"
             
-            # Warn if venue is uncategorized
             if group_name == "uncategorized":
                 logger.warning(f"Contact {email} from venue '{contact[0]}' mapped to 'uncategorized' - venue not found in GROUPS mapping")
             
-            # Skip if email is not valid
             if not is_valid_email(email):
                 logger.warning(f"Invalid email skipped: {email}")
                 continue
             
-            # Track group statistics
             if group_name not in group_stats:
                 group_stats[group_name] = 0
             group_stats[group_name] += 1
@@ -304,10 +275,8 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
             name = f"{first_name} {last_name}".strip()
             phone = contact[9] if len(contact) > 9 else None
             
-            # Prepare individual request body
             fields = {"name": name}
             
-            # Add phone if it exists and is not empty
             if phone and str(phone).strip() and str(phone).lower() not in ['none', 'null', '']:
                 fields["phone"] = str(phone).strip()
             
@@ -325,7 +294,6 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
             
             processed_emails.append(email)
     
-    # Log group distribution
     for group_name, count in group_stats.items():
         logger.info(f"Preparing to add {count} contacts to mailing list: {group_name}")
     
@@ -333,33 +301,28 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
         logger.info("No valid contacts to process")
         return []
     
-    # Split requests into batches of 50
     successful_emails = []
     failed_emails = []
-    successful_by_group = {}  # Track successful additions per group
+    successful_by_group = {}
     
     for i in range(0, len(requests_list), 50):
         batch_payload = {"requests": requests_list[i:i+50]}
         
-        # Make the batch request
         try:
             response = requests.post(batch_url, json=batch_payload, headers=headers)
             
-            # Handle response
             if response.status_code == 200:
                 result = response.json()
                 logger.info(f"Batch Process Completed: {result['successful']} successful, {result['failed']} failed.")
                 
-                # Track successful emails for this batch
                 batch_start = i
                 for idx, res in enumerate(result['responses']):
                     email_idx = batch_start + idx
                     if email_idx < len(processed_emails):
-                        if res.get('code') in [200, 201]:  # Success codes
+                        if res.get('code') in [200, 201]:
                             email = processed_emails[email_idx]
                             successful_emails.append(email)
                             
-                            # Track which group this success belongs to
                             request_body = requests_list[email_idx]["body"]
                             group_id = request_body["groups"][0]
                             group_name = next((k for k, v in GROUPS.items() if v == group_id), "unknown")
@@ -372,7 +335,6 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
                             logger.warning(f"Failed to add {processed_emails[email_idx]}: {res}")
             else:
                 logger.error(f"Failed to process batch: {response.status_code} - {response.text}")
-                # Mark all emails in this batch as failed
                 batch_emails = processed_emails[i:i+50]
                 failed_emails.extend(batch_emails)
                 
@@ -381,11 +343,9 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
             batch_emails = processed_emails[i:i+50]
             failed_emails.extend(batch_emails)
     
-    # Log successful additions per mailing list
     for group_name, emails in successful_by_group.items():
         emails_with_details = []
         for email in emails:
-            # Find the original contact to check for phone
             idx = processed_emails.index(email)
             request_body = requests_list[idx]["body"]
             fields = request_body.get("fields", {})
@@ -419,7 +379,6 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
         client = MongoClient(MONGO_URI)
         db = client[MONGO_DB]
         
-        # Group successful emails by their source collection
         email_to_collection = {}
         for contact in processed_contacts:
             if contact.get('email') in successful_emails:
@@ -427,11 +386,9 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
         
         total_updated = 0
         
-        # Update each collection separately
         for collection_name in MONGO_COLLECTIONS:
             collection = db[collection_name]
             
-            # Get emails that belong to this collection
             emails_for_this_collection = [
                 email for email, source in email_to_collection.items() 
                 if source == collection_name
@@ -440,7 +397,6 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
             if emails_for_this_collection:
                 logger.info(f"Updating {len(emails_for_this_collection)} contacts in {collection_name} with added_to_mailerlite: true")
                 
-                # Update contacts in this collection
                 result = collection.update_many(
                     {"email": {"$in": emails_for_this_collection}},
                     {
@@ -490,7 +446,6 @@ def handle_failed_contacts(failed_emails, processed_contacts):
         db = client[MONGO_DB]
         failed_collection = db["failed"]
         
-        # Group failed emails by their source collection
         email_to_contact = {}
         for contact in processed_contacts:
             if contact.get('email') in failed_emails:
@@ -506,17 +461,14 @@ def handle_failed_contacts(failed_emails, processed_contacts):
                 logger.warning(f"Cannot move failed contact {email}: no source collection")
                 continue
             
-            # Add failure metadata
             contact['failed_at'] = datetime.utcnow()
             contact['failure_reason'] = 'mailerlite_import_failed'
             
-            # Insert into failed collection
             try:
                 failed_collection.insert_one(contact)
                 logger.info(f"Added failed contact {email} to 'failed' collection")
                 total_moved += 1
                 
-                # Delete from original collection
                 source_collection = db[source_collection_name]
                 result = source_collection.delete_one({"email": email})
                 
@@ -539,17 +491,14 @@ def handle_failed_contacts(failed_emails, processed_contacts):
 
 def main():
     """Main function to run the daily sync process"""
-    # Parse command line arguments
     parser = argparse.ArgumentParser(description='Sync contacts to MailerLite')
     parser.add_argument('--limit', type=int, default=None, 
                        help='Maximum number of contacts to process (for debugging)')
     args = parser.parse_args()
     
-    # Setup logging first
     setup_logging()
     logger.info("Starting daily MailerLite sync process")
     
-    # Load config to get API key
     config = load_config()
     if not config:
         logger.error("Failed to load config, cannot proceed")
@@ -561,34 +510,27 @@ def main():
         return
     
     try:
-        # Step 1: Get contacts to process
         contacts = get_contacts_to_process(limit=args.limit)
         
         if not contacts:
             logger.info("No contacts to process today")
             return
         
-        # Step 2: Convert to MailerLite format
         mailerlite_data, invalid_emails = convert_to_mailerlite_format(contacts)
         
         if not mailerlite_data:
             logger.info("No valid contacts after filtering")
-            # Still need to handle invalid emails even if no valid ones
             if invalid_emails:
                 handle_failed_contacts(invalid_emails, contacts)
             return
         
-        # Step 3: Add to MailerLite
         successful_emails, failed_emails, success_by_group = batch_add_contacts_to_mailerlite(mailerlite_data, api_key)
         
-        # Step 4: Mark successful contacts as processed in MongoDB
         mark_contacts_as_processed(successful_emails, contacts)
         
-        # Step 5: Handle failed contacts (both invalid and MailerLite rejected)
         all_failed_emails = invalid_emails + failed_emails
         handle_failed_contacts(all_failed_emails, contacts)
         
-        # Step 6: Log summary
         logger.info("=" * 60)
         logger.info("SYNC SUMMARY")
         logger.info("=" * 60)
