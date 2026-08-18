@@ -27,12 +27,6 @@ GROUPS = {
 }
 
 def is_valid_email(email):
-    """
-    Validates if the provided string is a valid email address.
-
-    :param email: Email address to validate
-    :return: True if valid, False otherwise
-    """
     import re
     email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
     return re.match(email_regex, email) is not None
@@ -43,11 +37,6 @@ def batch_add_contacts_to_mailerlite(emailsToAdd):
     from pprint import pprint
     pprint(emailsToAdd)
 
-    """
-    Batch adds contacts to MailerLite segments.
-
-    :param batch_data: Dictionary with show names as keys and contact lists as values
-    """
     batch_url = "https://connect.mailerlite.com/api/batch"
 
     headers = {

@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""
-Daily MailerLite Sync Script
-
-This script runs as a daily cron job to:
-1. Query MongoDB for contacts from completed shows (show_date < today)
-2. Find contacts that haven't been added to MailerLite yet
-3. Add them to MailerLite using the existing batch logic
-4. Mark them as processed in MongoDB
-
-Run this script once daily via cron job.
-"""
 
 import json
 import logging
@@ -28,7 +17,6 @@ logger = logging.getLogger(__name__)
 API_KEY = None
 
 def setup_logging():
-    """Setup logging configuration using config file"""
     config = load_config()
     if not config:
         log_file = "/home/ec2-user/MailerLiteSync/logs/mailerlite_sync.log"
@@ -47,7 +35,6 @@ def setup_logging():
 from addEmailToMailerLite import GROUPS
 
 def load_config():
-    """Load configuration from config file"""
     script_dir = os.path.dirname(os.path.abspath(__file__))
     CONFIG_FILE = os.path.join(script_dir, "config.json")
     try:
@@ -65,17 +52,12 @@ def load_config():
         return None
 
 def is_valid_email(email):
-    """Validate email address format"""
     if not email or email.lower() in ['', 'none', 'null']:
         return False
     email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
     return re.match(email_regex, email) is not None
 
 def parse_show_date(contact):
-    """
-    Parse show date from contact object.
-    Prioritizes show_datetime field (accurate year), falls back to parsing show_date text.
-    """
     if contact.get('show_datetime'):
         show_datetime = contact.get('show_datetime')
         try:
@@ -120,11 +102,6 @@ def parse_show_date(contact):
         return None
 
 def get_contacts_to_process(limit=None):
-    """
-    Query MongoDB for contacts from completed shows that haven't been added to MailerLite
-    
-    :param limit: Maximum number of contacts to retrieve (optional, for debugging)
-    """
     mongo_config = load_config()
     if not mongo_config:
         return []
@@ -195,12 +172,6 @@ def get_contacts_to_process(limit=None):
             client.close()
 
 def convert_to_mailerlite_format(contacts):
-    """
-    Convert MongoDB contacts to the format expected by MailerLite batch function
-    Returns tuple: (mailerlite_data, invalid_emails)
-    - mailerlite_data: dictionary in format {venue: [[contact_array], ...]}
-    - invalid_emails: list of email addresses that failed validation
-    """
     mailerlite_data = {}
     invalid_emails = []
     
@@ -234,10 +205,6 @@ def convert_to_mailerlite_format(contacts):
     return mailerlite_data, invalid_emails
 
 def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
-    """
-    Add contacts to MailerLite using batch API (adapted from addEmailToMailerLite.py)
-    Returns tuple: (successful_emails, failed_emails, success_by_group)
-    """
     logger.info("Starting MailerLite batch upload")
     
     batch_url = "https://connect.mailerlite.com/api/batch"
@@ -361,9 +328,6 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
     return successful_emails, failed_emails, successful_by_group
 
 def mark_contacts_as_processed(successful_emails, processed_contacts):
-    """
-    Mark successfully processed contacts as added to MailerLite in MongoDB
-    """
     if not successful_emails:
         return
         
@@ -422,14 +386,6 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
             client.close()
 
 def handle_failed_contacts(failed_emails, processed_contacts):
-    """
-    Handle contacts that failed to be added to MailerLite:
-    1. Add them to the 'failed' collection
-    2. Delete them from their original collection
-    
-    :param failed_emails: List of email addresses that failed
-    :param processed_contacts: Original list of contact documents with _collection_source
-    """
     if not failed_emails:
         logger.info("No failed contacts to handle")
         return
@@ -490,7 +446,6 @@ def handle_failed_contacts(failed_emails, processed_contacts):
             client.close()
 
 def main():
-    """Main function to run the daily sync process"""
     parser = argparse.ArgumentParser(description='Sync contacts to MailerLite')
     parser.add_argument('--limit', type=int, default=None, 
                        help='Maximum number of contacts to process (for debugging)')
