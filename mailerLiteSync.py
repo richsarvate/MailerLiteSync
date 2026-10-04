@@ -57,6 +57,10 @@ def is_valid_email(email):
     email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
     return re.match(email_regex, email) is not None
 
+def rejection_reason(response):
+    errors = response.get('body', {}).get('errors', {})
+    return "; ".join(sum(errors.values(), [])) or str(response)
+
 def parse_show_date(contact):
     if contact.get('show_datetime'):
         show_datetime = contact.get('show_datetime')
@@ -174,13 +178,13 @@ def get_contacts_to_process(limit=None):
 
 def convert_to_mailerlite_format(contacts):
     mailerlite_data = {}
-    invalid_emails = []
+    invalid_emails = {}
     
     for contact in contacts:
         if not is_valid_email(contact.get('email')):
             email = contact.get('email')
             logger.warning(f"Skipping invalid email: {email}")
-            invalid_emails.append(email)
+            invalid_emails[email] = "Invalid email address"
             continue
             
         venue = contact.get('venue', 'uncategorized')
@@ -270,7 +274,7 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
         return []
     
     successful_emails = []
-    failed_emails = []
+    failed_emails = {}
     successful_by_group = {}
     
     for i in range(0, len(requests_list), 50):
@@ -299,7 +303,7 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
                                 successful_by_group[group_name] = []
                             successful_by_group[group_name].append(email)
                         else:
-                            failed_emails.append(processed_emails[email_idx])
+                            failed_emails[processed_emails[email_idx]] = rejection_reason(res)
                             logger.warning(f"Failed to add {processed_emails[email_idx]}: {res}")
             else:
                 logger.error(f"Failed to process batch: {response.status_code} - {response.text}")
@@ -376,6 +380,11 @@ def mark_contacts(emails, processed_contacts, fields):
         if 'client' in locals():
             client.close()
 
+def mark_failed(failures, contacts):
+    for reason in set(failures.values()):
+        emails = [email for email, failed_reason in failures.items() if failed_reason == reason]
+        mark_contacts(emails, contacts, {"mailerlite_failed_date": datetime.utcnow(), "mailerlite_failed_reason": reason})
+
 def main():
     parser = argparse.ArgumentParser(description='Sync contacts to MailerLite')
     parser.add_argument('--limit', type=int, default=None, 
@@ -406,15 +415,15 @@ def main():
         
         if not mailerlite_data:
             logger.info("No valid contacts after filtering")
-            mark_contacts(invalid_emails, contacts, {"mailerlite_failed_date": datetime.utcnow()})
+            mark_failed(invalid_emails, contacts)
             return
         
         successful_emails, failed_emails, success_by_group = batch_add_contacts_to_mailerlite(mailerlite_data, api_key)
         
         mark_contacts(successful_emails, contacts, {"added_to_mailerlite": True, "mailerlite_added_date": datetime.utcnow()})
         
-        all_failed_emails = invalid_emails + failed_emails
-        mark_contacts(all_failed_emails, contacts, {"mailerlite_failed_date": datetime.utcnow()})
+        all_failed_emails = {**invalid_emails, **failed_emails}
+        mark_failed(all_failed_emails, contacts)
         
         logger.info("=" * 60)
         logger.info("SYNC SUMMARY")
