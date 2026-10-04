@@ -132,6 +132,7 @@ def get_contacts_to_process(limit=None):
                     {"added_to_mailerlite": False},
                     {"added_to_mailerlite": {"$exists": False}}
                 ],
+                "mailerlite_failed_date": {"$exists": False},
                 "email": {"$exists": True, "$ne": "", "$nin": [None, "none", "null"]}
             }
             
@@ -302,13 +303,9 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
                             logger.warning(f"Failed to add {processed_emails[email_idx]}: {res}")
             else:
                 logger.error(f"Failed to process batch: {response.status_code} - {response.text}")
-                batch_emails = processed_emails[i:i+50]
-                failed_emails.extend(batch_emails)
                 
         except Exception as e:
             logger.error(f"Error processing batch: {str(e)}")
-            batch_emails = processed_emails[i:i+50]
-            failed_emails.extend(batch_emails)
     
     for group_name, emails in successful_by_group.items():
         emails_with_details = []
@@ -327,8 +324,8 @@ def batch_add_contacts_to_mailerlite(emailsToAdd, api_key):
     logger.info(f"MailerLite upload complete: {len(successful_emails)} successful, {len(failed_emails)} failed")
     return successful_emails, failed_emails, successful_by_group
 
-def mark_contacts_as_processed(successful_emails, processed_contacts):
-    if not successful_emails:
+def mark_contacts(emails, processed_contacts, fields):
+    if not emails:
         return
         
     mongo_config = load_config()
@@ -345,7 +342,7 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
         
         email_to_collection = {}
         for contact in processed_contacts:
-            if contact.get('email') in successful_emails:
+            if contact.get('email') in emails:
                 email_to_collection[contact.get('email')] = contact.get('_collection_source')
         
         total_updated = 0
@@ -359,25 +356,19 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
             ]
             
             if emails_for_this_collection:
-                logger.info(f"Updating {len(emails_for_this_collection)} contacts in {collection_name} with added_to_mailerlite: true")
+                logger.info(f"Updating {len(emails_for_this_collection)} contacts in {collection_name} with {list(fields)}")
                 
                 result = collection.update_many(
                     {"email": {"$in": emails_for_this_collection}},
-                    {
-                        "$set": {
-                            "added_to_mailerlite": True,
-                            "mailerlite_added_date": datetime.utcnow(),
-                            "updated_at": datetime.utcnow()
-                        }
-                    }
+                    {"$set": {**fields, "updated_at": datetime.utcnow()}}
                 )
                 
-                logger.info(f"Successfully updated {result.modified_count} contacts as processed in {collection_name}")
+                logger.info(f"Successfully updated {result.modified_count} contacts in {collection_name}")
                 total_updated += result.modified_count
             else:
                 logger.info(f"No contacts to update in {collection_name}")
         
-        logger.info(f"Database update complete: {total_updated} total contacts marked as added_to_mailerlite: true")
+        logger.info(f"Database update complete: {total_updated} total contacts marked with {list(fields)}")
         
     except Exception as e:
         logger.error(f"Error updating MongoDB: {str(e)}")
@@ -415,13 +406,15 @@ def main():
         
         if not mailerlite_data:
             logger.info("No valid contacts after filtering")
+            mark_contacts(invalid_emails, contacts, {"mailerlite_failed_date": datetime.utcnow()})
             return
         
         successful_emails, failed_emails, success_by_group = batch_add_contacts_to_mailerlite(mailerlite_data, api_key)
         
-        mark_contacts_as_processed(successful_emails, contacts)
+        mark_contacts(successful_emails, contacts, {"added_to_mailerlite": True, "mailerlite_added_date": datetime.utcnow()})
         
         all_failed_emails = invalid_emails + failed_emails
+        mark_contacts(all_failed_emails, contacts, {"mailerlite_failed_date": datetime.utcnow()})
         
         logger.info("=" * 60)
         logger.info("SYNC SUMMARY")
