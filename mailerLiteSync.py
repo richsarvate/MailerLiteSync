@@ -385,66 +385,6 @@ def mark_contacts_as_processed(successful_emails, processed_contacts):
         if 'client' in locals():
             client.close()
 
-def handle_failed_contacts(failed_emails, processed_contacts):
-    if not failed_emails:
-        logger.info("No failed contacts to handle")
-        return
-    
-    mongo_config = load_config()
-    if not mongo_config:
-        return
-    
-    MONGO_URI = mongo_config["MONGO_URI"]
-    MONGO_DB = mongo_config["MONGO_DB"]
-    
-    try:
-        client = MongoClient(MONGO_URI)
-        db = client[MONGO_DB]
-        failed_collection = db["failed"]
-        
-        email_to_contact = {}
-        for contact in processed_contacts:
-            if contact.get('email') in failed_emails:
-                email_to_contact[contact.get('email')] = contact
-        
-        total_moved = 0
-        total_deleted = 0
-        
-        for email, contact in email_to_contact.items():
-            source_collection_name = contact.get('_collection_source')
-            
-            if not source_collection_name:
-                logger.warning(f"Cannot move failed contact {email}: no source collection")
-                continue
-            
-            contact['failed_at'] = datetime.utcnow()
-            contact['failure_reason'] = 'mailerlite_import_failed'
-            
-            try:
-                failed_collection.insert_one(contact)
-                logger.info(f"Added failed contact {email} to 'failed' collection")
-                total_moved += 1
-                
-                source_collection = db[source_collection_name]
-                result = source_collection.delete_one({"email": email})
-                
-                if result.deleted_count > 0:
-                    logger.info(f"Deleted {email} from original collection '{source_collection_name}'")
-                    total_deleted += 1
-                else:
-                    logger.warning(f"Failed to delete {email} from '{source_collection_name}'")
-                    
-            except Exception as e:
-                logger.error(f"Error handling failed contact {email}: {str(e)}")
-        
-        logger.info(f"Failed contacts handling complete: {total_moved} moved to 'failed' collection, {total_deleted} deleted from original collections")
-        
-    except Exception as e:
-        logger.error(f"Error in handle_failed_contacts: {str(e)}")
-    finally:
-        if 'client' in locals():
-            client.close()
-
 def main():
     parser = argparse.ArgumentParser(description='Sync contacts to MailerLite')
     parser.add_argument('--limit', type=int, default=None, 
@@ -475,8 +415,6 @@ def main():
         
         if not mailerlite_data:
             logger.info("No valid contacts after filtering")
-            if invalid_emails:
-                handle_failed_contacts(invalid_emails, contacts)
             return
         
         successful_emails, failed_emails, success_by_group = batch_add_contacts_to_mailerlite(mailerlite_data, api_key)
@@ -484,7 +422,6 @@ def main():
         mark_contacts_as_processed(successful_emails, contacts)
         
         all_failed_emails = invalid_emails + failed_emails
-        handle_failed_contacts(all_failed_emails, contacts)
         
         logger.info("=" * 60)
         logger.info("SYNC SUMMARY")
